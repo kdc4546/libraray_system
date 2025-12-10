@@ -17,7 +17,7 @@ type BookRepo interface {
 	Search(qry string) ([]models.Book, error)
 	Update(b *models.Book) error
 	Delete(id int64) error
-	ChangeAvailability(id int64, delta int) error
+	ChangeAvailability(id int64, delta int) (bool, error)
 }
 
 type MemberRepo interface {
@@ -33,7 +33,7 @@ type IssueRepo interface {
 	GetActiveByBookAndMember(bookID, memberID int64) (*models.Issue, error)
 	GetByMember(memberID int64) ([]models.Issue, error)
 	GetByID(id int64) (*models.Issue, error)
-	Return(issueID int64, returnedAt time.Time, fine float64) error
+	Return(issueID int64, returnedAt time.Time, fine float64) (bool, error)
 }
 
 type Repo struct {
@@ -42,11 +42,11 @@ type Repo struct {
 	IssueRepo  IssueRepo
 }
 
-func NewRepository(d *sqlx.DB) *Repo {
+func NewRepo(dbx *sqlx.DB) *Repo {
 	return &Repo{
-		BookRepo:   &bookRepository{db: d},
-		MemberRepo: &memberRepository{db: d},
-		IssueRepo:  &issueRepository{db: d},
+		BookRepo:   &bookRepository{db: dbx},
+		MemberRepo: &memberRepository{db: dbx},
+		IssueRepo:  &issueRepository{db: dbx},
 	}
 }
 
@@ -65,26 +65,29 @@ func (r *bookRepository) Create(b *models.Book) (int64, error) {
 func (r *bookRepository) GetByID(id int64) (*models.Book, error) {
 	var b models.Book
 	if err := r.db.Get(&b, db.QGetBookByID, id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &b, nil
 }
 
 func (r *bookRepository) GetAll() ([]models.Book, error) {
-	var bs []models.Book
-	if err := r.db.Select(&bs, db.QGetAllBooks); err != nil {
+	var books []models.Book
+	if err := r.db.Select(&books, db.QGetAllBooks); err != nil {
 		return nil, err
 	}
-	return bs, nil
+	return books, nil
 }
 
-func (r *bookRepository) Search(qs string) ([]models.Book, error) {
-	p := "%" + qs + "%"
-	var bs []models.Book
-	if err := r.db.Select(&bs, db.QSearchBooks, p, p, p); err != nil {
+func (r *bookRepository) Search(qry string) ([]models.Book, error) {
+	like := "%" + qry + "%"
+	var books []models.Book
+	if err := r.db.Select(&books, db.QSearchBooks, like, like); err != nil {
 		return nil, err
 	}
-	return bs, nil
+	return books, nil
 }
 
 func (r *bookRepository) Update(b *models.Book) error {
@@ -97,9 +100,16 @@ func (r *bookRepository) Delete(id int64) error {
 	return err
 }
 
-func (r *bookRepository) ChangeAvailability(id int64, delta int) error {
-	_, err := r.db.Exec(db.QChangeAvailability, delta, id)
-	return err
+func (r *bookRepository) ChangeAvailability(id int64, delta int) (bool, error) {
+	res, err := r.db.Exec(db.QChangeAvailability, delta, id, delta)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
 
 type memberRepository struct {
@@ -117,17 +127,20 @@ func (r *memberRepository) Create(m *models.Member) (int64, error) {
 func (r *memberRepository) GetByID(id int64) (*models.Member, error) {
 	var m models.Member
 	if err := r.db.Get(&m, db.QGetMemberByID, id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &m, nil
 }
 
 func (r *memberRepository) GetAll() ([]models.Member, error) {
-	var ms []models.Member
-	if err := r.db.Select(&ms, db.QGetAllMembers); err != nil {
+	var members []models.Member
+	if err := r.db.Select(&members, db.QGetAllMembers); err != nil {
 		return nil, err
 	}
-	return ms, nil
+	return members, nil
 }
 
 func (r *memberRepository) Update(m *models.Member) error {
@@ -164,22 +177,32 @@ func (r *issueRepository) GetActiveByBookAndMember(bookID, memberID int64) (*mod
 }
 
 func (r *issueRepository) GetByMember(memberID int64) ([]models.Issue, error) {
-	var its []models.Issue
-	if err := r.db.Select(&its, db.QGetIssuesByMember, memberID); err != nil {
+	var issues []models.Issue
+	if err := r.db.Select(&issues, db.QGetIssuesByMember, memberID); err != nil {
 		return nil, err
 	}
-	return its, nil
+	return issues, nil
 }
 
 func (r *issueRepository) GetByID(id int64) (*models.Issue, error) {
 	var it models.Issue
 	if err := r.db.Get(&it, db.QGetIssueByID, id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &it, nil
 }
 
-func (r *issueRepository) Return(issueID int64, returnedAt time.Time, fine float64) error {
-	_, err := r.db.Exec(db.QReturnIssue, returnedAt, fine, issueID)
-	return err
+func (r *issueRepository) Return(issueID int64, returnedAt time.Time, fine float64) (bool, error) {
+	res, err := r.db.Exec(db.QReturnIssue, returnedAt, fine, issueID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
