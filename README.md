@@ -1,143 +1,107 @@
-->Architecture/Approach
 
-1.service/libhttp
+Library Management System:
 
-Gin routes
+->Managing books (copies, availability)
+->Managing members
+->Issuing and returning books
 
-Request parsing & validation
+implemented with
+->gin-framework for HTTP routing
+->sqlx + MySQL for database
 
-JSON responses
+Architecture
+in main.go file:
+->Connects to MySQL
+->Ensures DB schema exists
+->Initializes Gin router
+->Registers all routes
+->Starts the HTTP server
 
-Admin authentication middleware
+HTTP / (service/libhttp):
+Contains Gin handlers for all endpoints (books, members, issues, admin login).
+->Parsing path params, query params, and JSON bodies
+->Validating requests
+->Mapping HTTP status codes and JSON responses
+->calls to the service/handler layer.
 
-2.service/handler
+Service  (service/handler):
+-> List / create / update / delete books and members
+-> Issue a book
+-> Return a book and add fines
 
-Business logic (issue, return, fine calculation)
+Repository (service/repository):
+have interfaces:
+BookRepo
+MemberRepo
+IssueRepo
 
-Validations (copies, availability, duplicates)
+Database (repository/db):
+MySQL connection and schema creation
+EnsureSchema creates tables books, members, issues with foreign keys and timestamps
 
-Keeps controllers clean and thin
+----------------------------------------
+I used postman api tool to check the payloads
+ login:
+ POST /admin/login
+-> admin login with username/password(implemented : admin/123)
 
-3.service/repository
-
-MySQL queries using sqlx
-
-CRUD operations separated by entity
-
-SQL stored separately in queries.go
-
-4.service/models
-
-Structs representing Books, Members, Issues
-
-JSON & DB field mappings
-
-5.Auto Database Schema
-
-Schema is created on server startup
-
-No migrations needed for initial setup
---------------------------
-
-1. Start MySQL
-
-Create database:
-
-CREATE DATABASE library_db;
-
-2. Configure Environment Variables (optional)
-
-Defaults exist — override if needed:
-
-DB_USER=root
-DB_PASS=yourpassword
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_NAME=database_name
-
-ADMIN_PASSWORD=admin123
-ADMIN_TOKEN=admintoken
-
-3. Run the server
-go run main.go
-
-
-Server runs at:
-
-http://localhost:8080
-
-
-Database tables are auto-created at startup.
-
-Admin Authentication
-Step 1 — Login
-POST /admin/login
-
-
-Request:
-
-{ "password": "admin123" }
-
-
-Response:
-
-{ "token": "admintoken" }
-
-Step 2 — Use token for all admin routes
-X-Admin-Token: admintoken
-
- API Endpoints
- Public Endpoints
-Books
-Method	Route	Description
-GET	/books	List all books
-GET	/books/:id	Get book by ID
-GET	/books/search?q=keyword	Search by title/author
-Members
-Method	Route	Description
-GET	/members/:id	Get member details
- Admin Endpoints (Require Token)
-Books
-Method	Route	Description
-POST	/admin/books	Create book
-PUT	/admin/books/:id	Update book
-DELETE	/admin/books/:id	Delete book
-GET	/admin/books	Admin list books
-Members
-Method	Route	Description
-POST	/admin/members	Create member
-PUT	/admin/members/:id	Update member
-DELETE	/admin/members/:id	Delete member
-GET	/admin/members	List all
-Issues
-Method	Route	Description
-POST	/admin/issues	Issue a book
-POST	/admin/issues/:id/return	Return a book (auto fine calc)
-GET	/admin/issues/member/:member_id	All issues for member
-
- Sample API Requests
-Create Book
-POST /admin/books
+ Books:
+GET /admin/books - list all books
+POST /admin/books - create a book
 {
-  "title": "Go Programming Language",
-  "author": "Alan Donovan",
-  "copies": 3
+  "title": "book A",
+  "author": "author_a",
+  "copies": 5
 }
 
-Issue a Book
-POST /admin/issues
+PUT /admin/books/:id - update book
+{
+  "title": "book B" - Updated",
+  "author": "author_b",
+  "copies": 10
+}
+
+DELETE /admin/books/:id - delete book
+
+ Members:
+GET /admin/members - list all members
+POST /admin/members - create a member
+{
+  "name": "p_1",
+  "email": "p_1@gmail.com",
+  "roll_no": "1"
+}
+
+PUT /admin/members/:id - update member
+{
+  "name": "p_2",
+  "email": "p_2@gmail.com"
+}
+
+DELETE /admin/members/:id - delete member
+
+ Issues:
+POST /admin/issues - Issue a book to a member.
 {
   "book_id": 1,
-  "member_id": 2,
+  "member_id": 1,
   "due_days": 7
 }
 
-Return Book
-POST /admin/issues/10/return
+POST /admin/issues/:id/return - Return a book and compute any fine.
+{
+  "message": "book returned",
+  "fine_paid": 20
+}
+GET /admin/issues/member/:member_id - List all issues for a member.
 
+--------------------------------------------
+I used atomic conditional UPDATE queries in the database
+(
+UPDATE books SET 
+available = available - 1 
+WHERE id = ? 
+  available > 0
+)
+ which have race-free borrow and return operations. Borrow and return logic now runs inside database transactions, that no two users can borrow the same last copy.
 
-Response example:
-
-{ "fine": 4 }
-
-NOTE: I used postman api tool for test the all payloads for responses.
